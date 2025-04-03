@@ -1,0 +1,20 @@
+version: '3'
+
+services:
+  load_balancer:
+    build: ./load_balancer
+    ports:
+      - "8080:5000"
+    depends_on:
+      - service_1
+      - service_2
+      - service_3
+
+  service_1:
+    build: ./service_1
+
+  service_2:
+    build: ./service_2
+
+  service_3:
+    build: ./service_3
