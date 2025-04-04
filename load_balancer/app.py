@@ -1,8 +1,13 @@
 from flask import Flask, request
 import requests
 import hashlib
+from prometheus_client import Counter, Histogram, generate_latest
+import time
 
 app = Flask(__name__)
+
+REQUEST_COUNT = Counter("http_requests_total", "Total HTTP Requests", ["strategy", "service"])
+RESPONSE_TIME = Histogram("response_time_seconds", "Response time in seconds", ["strategy", "service"])
 
 # Backend service pool
 services = [
@@ -38,11 +43,27 @@ def balance():
     else:
         target = round_robin()
         
+    # try:
+    #     resp = requests.get(target)
+    #     return f"{strategy.upper()}] -> {target}\n" + resp.text
+    # except Exception as e:
+    #     return f"Error forwarding to {target}: {e}", 500
+
     try:
+        start_time = time.time()
         resp = requests.get(target)
-        return f"{strategy.upper()}] -> {target}\n" + resp.text
+        duration = time.time() - start_time
+
+        REQUEST_COUNT.labels(strategy=strategy, service=target).inc()
+        RESPONSE_TIME.labels(strategy=strategy, service=target).observe(duration)
+
+        return f"[{strategy.upper()}] -> {target}\n" + resp.text
     except Exception as e:
         return f"Error forwarding to {target}: {e}", 500
+    
+@app.route("/metrics")
+def metrics():
+    return generate_latest(), 200, {"Content-Type": "text/plain"}
 
 
 # ----- Algorithms -----
