@@ -3,11 +3,14 @@ import requests
 import hashlib
 from prometheus_client import Counter, Histogram, generate_latest
 import time
+import requests as pyreq
 
 app = Flask(__name__)
 
 REQUEST_COUNT = Counter("http_requests_total", "Total HTTP Requests", ["strategy", "service"])
 RESPONSE_TIME = Histogram("response_time_seconds", "Response time in seconds", ["strategy", "service"])
+
+PROMETHEUS_URL = "http://prometheus:9090"
 
 # Backend service pool
 services = [
@@ -30,6 +33,27 @@ def init_weighted_list():
 
 init_weighted_list()
 
+# Add runtime state tracking
+live_connections = {
+    "http://service_1:5000": 0,
+    "http://service_2:5000": 0,
+    "http://service_3:5000": 0,
+}
+
+# Recent response times (updated after each request)
+recent_response_time = {
+    "http://service_1:5000": 1.0,
+    "http://service_2:5000": 1.0,
+    "http://service_3:5000": 1.0,
+}
+
+# Simulated weights for services
+service_weights = {
+    "http://service_1:5000": 3,
+    "http://service_2:5000": 2,
+    "http://service_3:5000": 1,
+}
+
 
 @app.route("/")
 def balance():
@@ -40,26 +64,39 @@ def balance():
         target = ip_hash(client_ip)
     elif strategy == "weighted_round_robin":
         target = weighted_round_robin()
+    elif strategy == "least_connections":
+        target = least_connections()
+    elif strategy == "weighted_least_connections":
+        target = weighted_least_connections()
+    elif strategy == "least_response_time":
+        target = least_response_time()
+    elif strategy == "resource":
+        target = resource_based()
     else:
         target = round_robin()
-        
-    # try:
-    #     resp = requests.get(target)
-    #     return f"{strategy.upper()}] -> {target}\n" + resp.text
-    # except Exception as e:
-    #     return f"Error forwarding to {target}: {e}", 500
 
+    #track connections + response time
+    live_connections[target] += 1
+    
+    start = time.time()
+    
     try:
-        start_time = time.time()
         resp = requests.get(target)
-        duration = time.time() - start_time
-
+        duration = time.time() - start
+        recent_response_time[target] = duration
+        
+        # Prometheus metrics
         REQUEST_COUNT.labels(strategy=strategy, service=target).inc()
         RESPONSE_TIME.labels(strategy=strategy, service=target).observe(duration)
-
+        
         return f"[{strategy.upper()}] -> {target}\n" + resp.text
+    
     except Exception as e:
         return f"Error forwarding to {target}: {e}", 500
+    
+    finally:
+        live_connections[target] -= 1    
+
     
 @app.route("/metrics")
 def metrics():
@@ -87,6 +124,35 @@ def ip_hash(ip):
     ip_hash_val = int(hashlib.md5(ip.encode()).hexdigest(), 16)
     idx = ip_hash_val % len(services)
     return services[idx]["url"]
+
+def least_connections():
+    return min(live_connections, key=live_connections.get())
+
+def weighted_least_connections():
+    score = {
+        svc : live_connections[svc] / service_weights[svc]
+        for svc in live_connections 
+    }
+    return min(score, key=score.get)
+
+def least_response_time():
+    return min(recent_response_time, key=recent_response_time.get)
+
+def get_cpu_usage(service_label):
+    query = f'rate(container_cpu_usage_seconds_total{{name="{service_label}"}}[1m])'
+    r = pyreq.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": query})
+    try:
+        results = r.json()["data"]["result"]
+        return float(results[0]["value"][1]) if results else float("inf")
+    except:
+        return float("inf")
+    
+def resource_based():
+    usages = {
+        svc: get_cpu_usage(svc.split("//")[1].split(":")[0])  # service_1 from http://service_1:5000
+        for svc in live_connections
+    }
+    return min(usages, key=usages.get)
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
