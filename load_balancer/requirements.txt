@@ -1,0 +1,5 @@
+Flask
+requests
+prometheus_client
+joblib
+scikit-learn

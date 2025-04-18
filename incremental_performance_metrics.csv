@@ -1,0 +1,6 @@
+Strategy,Avg Latency (ms),Throughput (req/s),Failure Rate (%),Per-Service Throughput,Timestamp
+round_robin,553.5,21.92,0.0,"service_1:5000: 7.31 rps, service_3:5000: 7.3 rps, service_2:5000: 7.31 rps",2025-04-17 21:05:10
+weighted_round_robin,551.31,22.37,0.0,"service_1:5000: 11.19 rps, service_2:5000: 7.46 rps, service_3:5000: 3.73 rps",2025-04-17 21:06:11
+least_connections,546.59,22.51,0.0,"service_2:5000: 7.64 rps, service_1:5000: 7.71 rps, service_3:5000: 7.17 rps",2025-04-17 21:07:13
+weighted_least_connections,559.0,21.12,0.0,"service_1:5000: 10.45 rps, service_3:5000: 3.67 rps, service_2:5000: 7.01 rps",2025-04-17 21:08:14
+least_response_time,558.9,21.68,0.0,"service_3:5000: 5.21 rps, service_2:5000: 6.95 rps, service_1:5000: 9.52 rps",2025-04-17 21:09:15

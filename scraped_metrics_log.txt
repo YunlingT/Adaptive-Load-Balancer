@@ -1,0 +1,18 @@
+
+[2025-04-17 21:18:19] Strategy: weighted_least_connections
+  Avg Latency (ms): 554.2531968915265
+  Throughput (req/s): 21.052502666400027
+  Failure Rate (%): 0.0
+  Per-Service Throughput:
+    - http://service_1:5000: 10.35 rps
+    - http://service_2:5000: 7.04 rps
+    - http://service_3:5000: 3.67 rps
+
+[2025-04-17 21:19:21] Strategy: least_response_time
+  Avg Latency (ms): 545.4129979810641
+  Throughput (req/s): 20.97493044892297
+  Failure Rate (%): 0.0
+  Per-Service Throughput:
+    - http://service_2:5000: 5.85 rps
+    - http://service_1:5000: 5.54 rps
+    - http://service_3:5000: 9.6 rps

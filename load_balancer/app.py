@@ -1,14 +1,20 @@
-from flask import Flask, request
+from flask import Flask, request, Response
 import requests
 import hashlib
-from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 import time
 import requests as pyreq
+import random
+from predictor import LoadPredictor
 
 app = Flask(__name__)
 
 REQUEST_COUNT = Counter("http_requests_total", "Total HTTP Requests", ["strategy", "service"])
 RESPONSE_TIME = Histogram("response_time_seconds", "Response time in seconds", ["strategy", "service"])
+FAILED_REQUESTS = Counter("http_requests_failed", "Failed HTTP Requests", ["strategy", "service"])
+
+predictor = LoadPredictor()
+
 
 PROMETHEUS_URL = "http://prometheus:9090"
 
@@ -54,13 +60,20 @@ service_weights = {
     "http://service_3:5000": 1,
 }
 
-
 @app.route("/")
 def balance():
     strategy = request.args.get("strategy", "round_robin")
     
+    # === ML-BASED LOAD PREDICTION LOGIC ===
+    predictor.add_observation(100)  # Optionally: replace 100 with actual recent load
+    predicted = predictor.predict_next()
+    if predicted and predicted > 120:
+        print(f"⚠️ Predicted overload: {predicted:.2f}")
+        strategy = "least_response_time"
+        
+    # === Strategy Routing ===
     if strategy == "ip_hash":
-        client_ip = request.remmote_addr
+        client_ip = request.remote_addr
         target = ip_hash(client_ip)
     elif strategy == "weighted_round_robin":
         target = weighted_round_robin()
@@ -88,11 +101,18 @@ def balance():
         # Prometheus metrics
         REQUEST_COUNT.labels(strategy=strategy, service=target).inc()
         RESPONSE_TIME.labels(strategy=strategy, service=target).observe(duration)
-        
-        return f"[{strategy.upper()}] -> {target}\n" + resp.text
-    
+        # Count failures explicitly
+        if resp.status_code >= 500:
+            FAILED_REQUESTS.labels(strategy=strategy, service=target).inc()
+
+        return resp.text
     except Exception as e:
-        return f"Error forwarding to {target}: {e}", 500
+        FAILED_REQUESTS.labels(strategy=strategy, service=target).inc()
+        return f"Request failed: {e}", 500
+    #     return f"[{strategy.upper()}] -> {target}\n" + resp.text
+    
+    # except Exception as e:
+    #     return f"Error forwarding to {target}: {e}", 500
     
     finally:
         live_connections[target] -= 1    
@@ -100,7 +120,7 @@ def balance():
     
 @app.route("/metrics")
 def metrics():
-    return generate_latest(), 200, {"Content-Type": "text/plain"}
+    return Response(generate_latest(), mimetype=CONTENT_TYPE_LATEST)
 
 
 # ----- Algorithms -----
@@ -126,7 +146,7 @@ def ip_hash(ip):
     return services[idx]["url"]
 
 def least_connections():
-    return min(live_connections, key=live_connections.get())
+    return min(live_connections, key=live_connections.get)
 
 def weighted_least_connections():
     score = {
